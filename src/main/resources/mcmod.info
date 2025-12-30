@@ -1,0 +1,13 @@
+[{
+  "modid": "genesisclient",
+  "name": "1:1 Client",
+  "description": "We are cooked.",
+  "version": "0.1",
+  "mcversion": "1.8.9",
+  "authorList": ["Raven"],
+  "credits": "M7 Retards",
+  "logoFile": "",
+  "url": "",
+  "updateUrl": "",
+  "screenshots": []
+}]
