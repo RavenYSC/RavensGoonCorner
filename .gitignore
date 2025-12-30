@@ -28,6 +28,22 @@ run
 *.log
 *.err
 
+# Server files with sensitive data
+servers/
+voice-server/
+*.bat
+
+# Environment files
+.env
+.env.*
+*.env
+
+# Secrets and tokens
+*secret*
+*token*
+*.pem
+*.key
+
 # Local scripts
 run_client.bat
 
