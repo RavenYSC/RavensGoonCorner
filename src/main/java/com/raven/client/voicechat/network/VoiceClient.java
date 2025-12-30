@@ -247,6 +247,13 @@ public class VoiceClient {
     }
     
     /**
+     * Request list of available rooms
+     */
+    public void sendListRooms() {
+        sendControl("list_rooms", new JsonObject());
+    }
+    
+    /**
      * Send mute state
      */
     public void sendMuteState(boolean muted) {
@@ -439,7 +446,21 @@ public class VoiceClient {
                     // Handle room list response
                     if (message.has("rooms") && message.get("rooms").isJsonArray()) {
                         System.out.println("[VoiceChat] Received room list");
-                        // TODO: Pass to GUI
+                        java.util.List<com.raven.client.voicechat.model.VoiceRoom> roomList = new java.util.ArrayList<>();
+                        for (com.google.gson.JsonElement elem : message.get("rooms").getAsJsonArray()) {
+                            JsonObject roomObj = elem.getAsJsonObject();
+                            String roomId = roomObj.get("id").getAsString();
+                            String roomName = roomObj.get("name").getAsString();
+                            com.raven.client.voicechat.model.VoiceRoom room = new com.raven.client.voicechat.model.VoiceRoom(roomId, roomName);
+                            if (roomObj.has("userCount")) {
+                                room.setUserCount(roomObj.get("userCount").getAsInt());
+                            }
+                            if (roomObj.has("isPrivate")) {
+                                room.setPrivate(roomObj.get("isPrivate").getAsBoolean());
+                            }
+                            roomList.add(room);
+                        }
+                        manager.onRoomListReceived(roomList);
                     }
                     break;
                     

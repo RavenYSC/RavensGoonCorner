@@ -94,7 +94,7 @@ public class GuiLicenseKey extends GuiScreen {
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
         
         // Title
-        String title = "\u00A7l\u00A76RavenClient \u00A7f\u00A7lLicense Verification";
+        String title = "\u00A7l\u00A761:1 Client \u00A7f\u00A7lLicense Verification";
         drawCenteredString(fontRendererObj, title, width / 2, panelY + 15, 0xFFFFFF);
         
         // Instructions

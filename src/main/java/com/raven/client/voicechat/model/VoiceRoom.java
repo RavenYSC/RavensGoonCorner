@@ -16,6 +16,7 @@ public class VoiceRoom {
     private String linkedPartyId; // If linked to a Party Finder party
     private int maxUsers;
     private List<UUID> userIds;
+    private int userCount; // For room list display (server-provided count)
     
     public VoiceRoom(String id, String name) {
         this.id = id;
@@ -24,6 +25,7 @@ public class VoiceRoom {
         this.linkedPartyId = null;
         this.maxUsers = 10;
         this.userIds = new ArrayList<>();
+        this.userCount = 0;
     }
     
     public String getId() {
@@ -79,7 +81,12 @@ public class VoiceRoom {
     }
     
     public int getUserCount() {
-        return userIds.size();
+        // If server-provided count is set (for room list), use that; otherwise use userIds.size()
+        return userCount > 0 ? userCount : userIds.size();
+    }
+    
+    public void setUserCount(int count) {
+        this.userCount = count;
     }
     
     public void addUser(UUID userId) {

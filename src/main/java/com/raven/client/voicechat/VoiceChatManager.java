@@ -219,6 +219,28 @@ public class VoiceChatManager {
     }
     
     /**
+     * Request the list of available rooms from the server.
+     */
+    public void requestRoomList() {
+        if (!connected) {
+            System.err.println("[VoiceChat] Not connected to voice server");
+            return;
+        }
+        
+        System.out.println("[VoiceChat] Requesting room list");
+        voiceClient.sendListRooms();
+    }
+    
+    /**
+     * Called by VoiceClient when room list is received.
+     */
+    public void onRoomListReceived(List<VoiceRoom> rooms) {
+        System.out.println("[VoiceChat] Received " + rooms.size() + " rooms");
+        this.availableRooms = rooms;
+        notifyRoomListUpdated(rooms);
+    }
+    
+    /**
      * Leave the current voice room.
      */
     public void leaveRoom() {
