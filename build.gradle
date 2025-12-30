@@ -1,0 +1,61 @@
+buildscript {
+    repositories {
+        maven { url = "https://files.minecraftforge.net/maven" }
+        jcenter()
+    }
+    dependencies {
+        classpath 'net.minecraftforge.gradle:ForgeGradle:2.1-SNAPSHOT'
+    }
+}
+
+apply plugin: 'net.minecraftforge.gradle.forge'
+
+version = "1.0"
+group = "com.raven.client"
+archivesBaseName = "RavenClient"
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+minecraft {
+    version = "1.8.9-11.15.1.1722"
+    runDir = "run"
+    mappings = "stable_22"
+    replace "@VERSION@", project.version
+    
+    // Skip asset download failures (they're non-critical for dev)
+    clientJvmArgs = ["-Dfml.ignoreInvalidMinecraftCerts=true"]
+    
+    // Skip asset downloads entirely - not needed for local dev
+    tasks.withType(net.minecraftforge.gradle.tasks.DownloadAssetsTask) {
+        doFirst {
+            println "[BUILD] Skipping asset downloads (not needed for local dev)"
+            return true
+        }
+    }
+}
+
+repositories {
+    flatDir {
+        dirs 'libs'
+    }
+    maven { url = "https://files.minecraftforge.net/maven" }
+    mavenCentral()
+    jcenter()
+}
+
+dependencies {
+    compile name: 'jlayer-1.0.1'
+}
+
+jar {
+    archiveName = "RavenClient.jar"
+
+    from {
+        configurations.compile.findAll {
+            it.name.endsWith('.jar') && !it.name.contains('forge') && !it.name.contains('minecraft')
+        }.collect { zipTree(it) }
+    } {
+        exclude 'dummyThing'
+    }
+}
