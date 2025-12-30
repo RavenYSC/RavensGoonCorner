@@ -20,3 +20,19 @@ build
 # other
 eclipse
 run
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
+*.err
+
+# Local scripts
+run_client.bat
+
+# Server-side code (runs on VPS, not part of mod)
+voice-server/
+
+# Dependencies
+libs/
