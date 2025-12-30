@@ -11,8 +11,10 @@ import com.raven.client.features.mining.NoBlockBreakReset;
 import com.raven.client.gui.GuiOpener;
 import com.raven.client.gui.notifications.NotificationRenderer;
 import com.raven.client.license.LicenseChecker;
+import com.raven.client.music.MainMenuMusicHandler;
 import com.raven.client.music.MusicManager;
 import com.raven.client.music.PlaylistSyncManager;
+import com.raven.client.music.RadioManager;
 import com.raven.client.music.UserPlaylistManager;
 import com.raven.client.overlay.OverlayUI;
 import com.raven.client.skyblock.SkyblockKeyBinds;
@@ -32,7 +34,7 @@ import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
 public class RavenClient {
 
     public static final String MODID = "ravenclient";
-    public static final String NAME = "RavenClient";
+    public static final String NAME = "1:1 Client";
     public static final String VERSION = "1.0";
 
     public static final FeatureManager featureManager = new FeatureManager();
@@ -46,7 +48,7 @@ public class RavenClient {
 
     @Mod.EventHandler
     public void init(FMLInitializationEvent event) {
-        System.out.println("[" + NAME + "] Initializing RavenClient v" + VERSION + "...");
+        System.out.println("[" + NAME + "] Initializing v" + VERSION + "...");
         
         ConfigManager.load();
 
@@ -86,6 +88,14 @@ public class RavenClient {
 
         // Load music library (fast, local)
         MusicManager.init();
+
+        // Initialize Radio system
+        RadioManager.getInstance();
+        System.out.println("[" + NAME + "] Radio system initialized");
+
+        // Initialize Main Menu music handler and register events
+        MinecraftForge.EVENT_BUS.register(MainMenuMusicHandler.getInstance());
+        System.out.println("[" + NAME + "] Main menu music handler initialized");
 
         // Async: Sync playlists from API on background thread (non-blocking)
         new Thread(() -> {

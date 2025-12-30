@@ -6,6 +6,10 @@ import com.raven.client.gui.components.CustomButton;
 import com.raven.client.gui.components.RenderUtils;
 import com.raven.client.gui.partyfinder.PartyFinderCategory;
 import com.raven.client.gui.partyfinder.PartyFinderAPI;
+import com.raven.client.utils.ConfigManager;
+import com.raven.client.voicechat.VoiceChatManager;
+import com.raven.client.voicechat.model.VoiceRoom;
+import com.raven.client.voicechat.model.VoiceUser;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.GuiTextField;
@@ -13,6 +17,7 @@ import net.minecraft.util.ChatComponentText;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -103,6 +108,15 @@ public class GuiAnnouncement extends GuiScreen {
     private boolean bazaarIsLoading = false;
     private boolean bazaarShowSearch = false;
     private boolean bazaarDataLoaded = false;
+    
+    // Voice Chat state
+    private String voiceChatViewMode = "main"; // main, rooms, settings, create_room
+    private String voiceStatusMessage = "";
+    private long voiceStatusMessageTime = 0;
+    private int voiceRoomListScroll = 0;
+    private List<VoiceRoomEntry> voiceAvailableRooms = new ArrayList<>();
+    private GuiTextField voiceApiKeyField;
+    private GuiTextField voiceRoomNameField;
     
     // Bazaar layout
     private int bazaarCategoryWidth = 120;
@@ -202,6 +216,8 @@ public class GuiAnnouncement extends GuiScreen {
             .setBorderColor(0xFFAA55FF));
         this.buttonList.add(new CustomButton(7, tabX + 445, tabY, 55, 25, "Stocks")
             .setBorderColor(0xFF55FFFF));
+        this.buttonList.add(new CustomButton(8, tabX + 505, tabY, 50, 25, "Voice")
+            .setBorderColor(0xFF5865F2));  // Discord blue
         
         // Initialize Bazaar search field
         bazaarSearchField = new GuiTextField(101, this.fontRendererObj,
@@ -210,6 +226,28 @@ public class GuiAnnouncement extends GuiScreen {
         bazaarSearchField.setMaxStringLength(50);
         bazaarSearchField.setFocused(false);
         bazaarSearchField.setText("");
+        
+        // Initialize Voice API key field
+        voiceApiKeyField = new GuiTextField(102, this.fontRendererObj,
+            PANEL_X + 130, PANEL_Y + HEADER_HEIGHT + 150,
+            200, 18);
+        voiceApiKeyField.setMaxStringLength(100);
+        voiceApiKeyField.setFocused(false);
+        // Load saved API key from config
+        String savedVoiceKey = ConfigManager.get("voiceApiKey", "");
+        voiceApiKeyField.setText(savedVoiceKey);
+        // Apply to VoiceChatManager if exists
+        if (!savedVoiceKey.isEmpty()) {
+            VoiceChatManager.getInstance().setAuthToken(savedVoiceKey);
+        }
+        
+        // Initialize Voice Room Name field
+        voiceRoomNameField = new GuiTextField(103, this.fontRendererObj,
+            PANEL_X + 130, PANEL_Y + HEADER_HEIGHT + 150,
+            200, 18);
+        voiceRoomNameField.setMaxStringLength(32);
+        voiceRoomNameField.setFocused(false);
+        voiceRoomNameField.setText("");
     }
 
     @Override
@@ -248,6 +286,25 @@ public class GuiAnnouncement extends GuiScreen {
         } else if (button.id == 7) {
             currentTab = Message.MessageType.STOCK_MARKET;
             selectedMessage = null;
+        } else if (button.id == 8) {
+            currentTab = Message.MessageType.VOICE_CHAT;
+            selectedMessage = null;
+            voiceChatViewMode = "main";
+            
+            // Auto-connect to voice server when opening Voice Chat tab
+            VoiceChatManager voiceManager = VoiceChatManager.getInstance();
+            if (!voiceManager.isConnected() && !voiceManager.isConnecting()) {
+                // Check if we have an auth token
+                String token = voiceManager.getAuthToken();
+                if (token != null && !token.isEmpty()) {
+                    // Initialize if not already done
+                    if (!voiceManager.isInitialized()) {
+                        voiceManager.initialize();
+                    }
+                    // Auto-connect
+                    voiceManager.connect();
+                }
+            }
         }
     }
 
@@ -293,10 +350,17 @@ public class GuiAnnouncement extends GuiScreen {
         // Check if we're on Bazaar tab
         boolean isBazaar = currentTab == Message.MessageType.BAZAAR;
         
+        // Check if we're on Voice Chat tab
+        boolean isVoiceChat = currentTab == Message.MessageType.VOICE_CHAT;
+        
         if (isBazaar) {
             // Bazaar with full browsing functionality
             int fullWidth = panelWidth - 20;
             drawBazaarContent(listX, listY, fullWidth, listHeight, mouseX, mouseY);
+        } else if (isVoiceChat) {
+            // Voice Chat with room management
+            int fullWidth = panelWidth - 20;
+            drawVoiceChatContent(listX, listY, fullWidth, listHeight, mouseX, mouseY);
         } else if (isFullPanelTab) {
             // Full-width content panel for Bazaar/Auction/Stocks
             int fullWidth = panelWidth - 20;
@@ -865,6 +929,630 @@ public class GuiAnnouncement extends GuiScreen {
         RenderUtils.drawBorder(x + width - 100, applyY, x + width - 20, applyY + 25, 0xFF77CC77, 1);
         net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
         this.fontRendererObj.drawStringWithShadow("Apply", x + width - 75, applyY + 8, 0xFFFFFFFF);
+    }
+    
+    // ===================== VOICE CHAT DRAWING METHODS =====================
+    
+    private void drawVoiceChatContent(int x, int y, int width, int height, int mouseX, int mouseY) {
+        VoiceChatManager voiceManager = VoiceChatManager.getInstance();
+        
+        // Main panel background
+        RenderUtils.drawBox(x, y, x + width, y + height, 0xFF16213E, 0xFF333344, 1);
+        
+        // Title header with Discord blue
+        RenderUtils.drawRect(x, y, x + width, y + 40, 0xFF5865F2);
+        net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        this.fontRendererObj.drawString("Voice Chat", x + 15, y + 15, 0xFFFFFFFF);
+        
+        // Connection status
+        int statusColor = voiceManager.isConnected() ? 0xFF55FF55 : 0xFFFF5555;
+        String statusText = voiceManager.isConnected() ? "Connected" : "Disconnected";
+        int statusWidth = this.fontRendererObj.getStringWidth(statusText);
+        RenderUtils.drawRect(x + width - statusWidth - 30, y + 10, x + width - 10, y + 30, 0xFF2a2a3a);
+        this.fontRendererObj.drawString(statusText, x + width - statusWidth - 20, y + 16, statusColor);
+        
+        int contentY = y + 55;
+        int buttonWidth = 90;
+        int buttonHeight = 22;
+        int buttonSpacing = 10;
+        
+        // First row: Connect, Browse Rooms, Settings
+        // Connect/Disconnect button
+        boolean connectHover = mouseX >= x + 15 && mouseX < x + 15 + buttonWidth && 
+                              mouseY >= contentY && mouseY < contentY + buttonHeight;
+        int connectBg = connectHover ? 0xFF4a5a6a : 0xFF3a4a5a;
+        RenderUtils.drawRect(x + 15, contentY, x + 15 + buttonWidth, contentY + buttonHeight, connectBg);
+        RenderUtils.drawBorder(x + 15, contentY, x + 15 + buttonWidth, contentY + buttonHeight, 0xFF5865F2, 1);
+        net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        String connectText = voiceManager.isConnected() ? "Disconnect" : "Connect";
+        int connectTextW = this.fontRendererObj.getStringWidth(connectText);
+        this.fontRendererObj.drawString(connectText, x + 15 + (buttonWidth - connectTextW) / 2, contentY + 7, 0xFFFFFF);
+        
+        // Browse Rooms button
+        int browseX = x + 15 + buttonWidth + buttonSpacing;
+        boolean browseHover = mouseX >= browseX && mouseX < browseX + 95 && 
+                             mouseY >= contentY && mouseY < contentY + buttonHeight;
+        int browseBg = voiceChatViewMode.equals("rooms") ? 0xFF5865F2 : (browseHover ? 0xFF4a5a6a : 0xFF3a4a5a);
+        RenderUtils.drawRect(browseX, contentY, browseX + 95, contentY + buttonHeight, browseBg);
+        RenderUtils.drawBorder(browseX, contentY, browseX + 95, contentY + buttonHeight, 0xFF5865F2, 1);
+        net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        this.fontRendererObj.drawString("Browse Rooms", browseX + 8, contentY + 7, 0xFFFFFF);
+        
+        // Settings button
+        int settingsX = browseX + 95 + buttonSpacing;
+        boolean settingsHover = mouseX >= settingsX && mouseX < settingsX + 70 && 
+                               mouseY >= contentY && mouseY < contentY + buttonHeight;
+        int settingsBg = voiceChatViewMode.equals("settings") ? 0xFF5865F2 : (settingsHover ? 0xFF4a5a6a : 0xFF3a4a5a);
+        RenderUtils.drawRect(settingsX, contentY, settingsX + 70, contentY + buttonHeight, settingsBg);
+        RenderUtils.drawBorder(settingsX, contentY, settingsX + 70, contentY + buttonHeight, 0xFF5865F2, 1);
+        net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        this.fontRendererObj.drawString("Settings", settingsX + 12, contentY + 7, 0xFFFFFF);
+        
+        contentY += buttonHeight + 10;
+        
+        // Second row: Mute, Deafen, Leave Room
+        // Mute button
+        int muteX = x + 15;
+        boolean muteHover = mouseX >= muteX && mouseX < muteX + 70 && 
+                           mouseY >= contentY && mouseY < contentY + buttonHeight;
+        int muteBg = voiceManager.isMuted() ? 0xFF8B0000 : (muteHover ? 0xFF4a5a6a : 0xFF3a4a5a);
+        RenderUtils.drawRect(muteX, contentY, muteX + 70, contentY + buttonHeight, muteBg);
+        RenderUtils.drawBorder(muteX, contentY, muteX + 70, contentY + buttonHeight, voiceManager.isMuted() ? 0xFFFF5555 : 0xFF666666, 1);
+        net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        String muteText = voiceManager.isMuted() ? "Unmute" : "Mute";
+        int muteTextW = this.fontRendererObj.getStringWidth(muteText);
+        this.fontRendererObj.drawString(muteText, muteX + (70 - muteTextW) / 2, contentY + 7, 0xFFFFFF);
+        
+        // Deafen button
+        int deafenX = muteX + 70 + buttonSpacing;
+        boolean deafenHover = mouseX >= deafenX && mouseX < deafenX + 70 && 
+                             mouseY >= contentY && mouseY < contentY + buttonHeight;
+        int deafenBg = voiceManager.isDeafened() ? 0xFF8B0000 : (deafenHover ? 0xFF4a5a6a : 0xFF3a4a5a);
+        RenderUtils.drawRect(deafenX, contentY, deafenX + 70, contentY + buttonHeight, deafenBg);
+        RenderUtils.drawBorder(deafenX, contentY, deafenX + 70, contentY + buttonHeight, voiceManager.isDeafened() ? 0xFFFF5555 : 0xFF666666, 1);
+        net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        String deafenText = voiceManager.isDeafened() ? "Undeafen" : "Deafen";
+        int deafenTextW = this.fontRendererObj.getStringWidth(deafenText);
+        this.fontRendererObj.drawString(deafenText, deafenX + (70 - deafenTextW) / 2, contentY + 7, 0xFFFFFF);
+        
+        // Leave Room button
+        int leaveX = deafenX + 70 + buttonSpacing;
+        boolean leaveHover = mouseX >= leaveX && mouseX < leaveX + 85 && 
+                            mouseY >= contentY && mouseY < contentY + buttonHeight;
+        int leaveBg = leaveHover ? 0xFF6a3a3a : 0xFF5a3a3a;
+        RenderUtils.drawRect(leaveX, contentY, leaveX + 85, contentY + buttonHeight, leaveBg);
+        RenderUtils.drawBorder(leaveX, contentY, leaveX + 85, contentY + buttonHeight, 0xFFAA5555, 1);
+        net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        this.fontRendererObj.drawString("Leave Room", leaveX + 8, contentY + 7, 0xFFFFFF);
+        
+        contentY += buttonHeight + 20;
+        
+        // Draw content based on view mode
+        if (voiceChatViewMode.equals("rooms")) {
+            drawVoiceRoomsView(x, contentY, width, y + height - contentY - 20, mouseX, mouseY);
+        } else if (voiceChatViewMode.equals("settings")) {
+            drawVoiceSettingsView(x, contentY, width, y + height - contentY - 20, mouseX, mouseY);
+        } else if (voiceChatViewMode.equals("create_room")) {
+            drawVoiceCreateRoomView(x, contentY, width, y + height - contentY - 20, mouseX, mouseY);
+        } else {
+            drawVoiceMainView(x, contentY, width, y + height - contentY - 20, mouseX, mouseY);
+        }
+        
+        // Status message at bottom
+        if (!voiceStatusMessage.isEmpty() && System.currentTimeMillis() - voiceStatusMessageTime < 3000) {
+            net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+            int msgWidth = this.fontRendererObj.getStringWidth(voiceStatusMessage);
+            this.fontRendererObj.drawString(voiceStatusMessage, x + (width - msgWidth) / 2, y + height - 20, 0xFFFF55);
+        }
+    }
+    
+    private void drawVoiceMainView(int x, int y, int width, int height, int mouseX, int mouseY) {
+        VoiceChatManager voiceManager = VoiceChatManager.getInstance();
+        int contentY = y;
+        
+        // Current room info
+        VoiceRoom currentRoom = voiceManager.getCurrentRoom();
+        net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        
+        if (currentRoom != null) {
+            this.fontRendererObj.drawString("Current Room: " + currentRoom.getName(), x + 15, contentY, 0xFFFFFF);
+            contentY += 15;
+            
+            if (currentRoom.isLinkedToParty()) {
+                this.fontRendererObj.drawString("(Linked to Party)", x + 15, contentY, 0x88FF88);
+                contentY += 15;
+            }
+            
+            // Users in room
+            contentY += 10;
+            this.fontRendererObj.drawString("Users in Room:", x + 15, contentY, 0xAAAAAA);
+            contentY += 18;
+            
+            Map<String, VoiceUser> usersInRoom = voiceManager.getUsersInRoom();
+            if (usersInRoom != null) {
+                for (VoiceUser user : usersInRoom.values()) {
+                    // User entry background
+                    int userBgColor = user.isTalking() ? 0xFF3a5a3a : 0xFF2a2a3a;
+                    RenderUtils.drawRect(x + 15, contentY, x + width - 30, contentY + 25, userBgColor);
+                    
+                    // Talking indicator
+                    if (user.isTalking()) {
+                        RenderUtils.drawRect(x + 17, contentY + 2, x + 22, contentY + 23, 0xFF55FF55);
+                    }
+                    
+                    // User name
+                    net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+                    String displayName = user.getDisplayName();
+                    if (user.getDiscordName() != null) {
+                        displayName += " (" + user.getDiscordName() + ")";
+                    }
+                    this.fontRendererObj.drawString(displayName, x + 28, contentY + 8, 
+                        user.isMuted() ? 0x888888 : 0xFFFFFF);
+                    
+                    // Mute/deafen icons
+                    if (user.isMuted()) {
+                        this.fontRendererObj.drawString("[M]", x + width - 60, contentY + 8, 0xFF5555);
+                    }
+                    if (user.isDeafened()) {
+                        this.fontRendererObj.drawString("[D]", x + width - 45, contentY + 8, 0xFF5555);
+                    }
+                    
+                    contentY += 28;
+                    
+                    // Limit displayed users
+                    if (contentY > y + height - 60) break;
+                }
+            }
+        } else {
+            this.fontRendererObj.drawString("Not in a room", x + 15, contentY, 0x888888);
+            contentY += 20;
+            this.fontRendererObj.drawString("Click 'Browse Rooms' to join or create a room", x + 15, contentY, 0x666666);
+        }
+        
+        // Mic level meter at bottom
+        if (voiceManager.isConnected()) {
+            int meterY = y + height - 30;
+            net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+            this.fontRendererObj.drawString("Mic Level:", x + 15, meterY, 0xAAAAAA);
+            
+            // Meter background
+            RenderUtils.drawRect(x + 80, meterY - 2, x + 280, meterY + 12, 0xFF1a1a2a);
+            
+            // Meter fill
+            float level = voiceManager.getMicrophoneLevel();
+            int fillWidth = (int) (200 * Math.min(1.0f, level * 5));
+            
+            int meterColor;
+            if (voiceManager.isMuted()) {
+                meterColor = 0xFF555555;
+            } else if (voiceManager.isPushToTalkActive() || (!voiceManager.isUsePushToTalk() && level > 0.02f)) {
+                meterColor = 0xFF55FF55;
+            } else {
+                meterColor = 0xFF55AA55;
+            }
+            RenderUtils.drawRect(x + 80, meterY - 2, x + 80 + fillWidth, meterY + 12, meterColor);
+            
+            // PTT indicator
+            if (voiceManager.isUsePushToTalk()) {
+                String pttText = voiceManager.isPushToTalkActive() ? "PTT Active" : "Press V to talk";
+                net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+                this.fontRendererObj.drawString(pttText, x + 290, meterY, 
+                    voiceManager.isPushToTalkActive() ? 0x55FF55 : 0x888888);
+            }
+        }
+    }
+    
+    private void drawVoiceRoomsView(int x, int y, int width, int height, int mouseX, int mouseY) {
+        net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        this.fontRendererObj.drawString("Available Rooms", x + 15, y, 0xFFFFFF);
+        
+        int contentY = y + 20;
+        
+        // Create Room button
+        int createBtnX = x + 15;
+        boolean createHover = mouseX >= createBtnX && mouseX < createBtnX + 100 && 
+                             mouseY >= contentY && mouseY < contentY + 22;
+        RenderUtils.drawRect(createBtnX, contentY, createBtnX + 100, contentY + 22, createHover ? 0xFF4a6a4a : 0xFF3a5a3a);
+        RenderUtils.drawBorder(createBtnX, contentY, createBtnX + 100, contentY + 22, 0xFF55AA55, 1);
+        net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        this.fontRendererObj.drawString("Create Room", createBtnX + 12, contentY + 7, 0xFFFFFF);
+        
+        // Refresh button
+        int refreshBtnX = createBtnX + 110;
+        boolean refreshHover = mouseX >= refreshBtnX && mouseX < refreshBtnX + 70 && 
+                              mouseY >= contentY && mouseY < contentY + 22;
+        RenderUtils.drawRect(refreshBtnX, contentY, refreshBtnX + 70, contentY + 22, refreshHover ? 0xFF4a5a6a : 0xFF3a4a5a);
+        RenderUtils.drawBorder(refreshBtnX, contentY, refreshBtnX + 70, contentY + 22, 0xFF5865F2, 1);
+        net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        this.fontRendererObj.drawString("Refresh", refreshBtnX + 12, contentY + 7, 0xFFFFFF);
+        
+        // Back button
+        int backBtnX = refreshBtnX + 80;
+        boolean backHover = mouseX >= backBtnX && mouseX < backBtnX + 50 && 
+                           mouseY >= contentY && mouseY < contentY + 22;
+        RenderUtils.drawRect(backBtnX, contentY, backBtnX + 50, contentY + 22, backHover ? 0xFF4a5a6a : 0xFF3a4a5a);
+        RenderUtils.drawBorder(backBtnX, contentY, backBtnX + 50, contentY + 22, 0xFF666666, 1);
+        net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        this.fontRendererObj.drawString("Back", backBtnX + 12, contentY + 7, 0xFFFFFF);
+        
+        contentY += 35;
+        
+        // Room list - read directly from VoiceChatManager
+        VoiceChatManager voiceManager = VoiceChatManager.getInstance();
+        java.util.List<VoiceRoom> availableRooms = voiceManager.getAvailableRooms();
+        
+        if (availableRooms.isEmpty()) {
+            if (!voiceManager.isConnected()) {
+                this.fontRendererObj.drawString("Connect to voice chat to browse rooms", x + 15, contentY + 20, 0x888888);
+            } else {
+                this.fontRendererObj.drawString("No rooms available", x + 15, contentY + 20, 0x888888);
+                this.fontRendererObj.drawString("Create a new room or click Refresh", x + 15, contentY + 35, 0x666666);
+            }
+        } else {
+            for (int i = voiceRoomListScroll; i < Math.min(voiceRoomListScroll + 6, availableRooms.size()); i++) {
+                VoiceRoom room = availableRooms.get(i);
+                
+                boolean hover = mouseX >= x + 15 && mouseX < x + width - 30 &&
+                               mouseY >= contentY && mouseY < contentY + 30;
+                
+                int bgColor = hover ? 0xFF3a3a4a : 0xFF2a2a3a;
+                RenderUtils.drawRect(x + 15, contentY, x + width - 30, contentY + 30, bgColor);
+                
+                net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+                this.fontRendererObj.drawString(room.getName(), x + 25, contentY + 5, 0xFFFFFF);
+                this.fontRendererObj.drawString(room.getUserCount() + " users", x + 25, contentY + 17, 0x888888);
+                
+                // Join button
+                int joinBtnX = x + width - 80;
+                boolean joinHover = hover && mouseX >= joinBtnX && mouseX < joinBtnX + 45;
+                RenderUtils.drawRect(joinBtnX, contentY + 5, joinBtnX + 45, contentY + 25, joinHover ? 0xFF5865F2 : 0xFF4855E2);
+                net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+                this.fontRendererObj.drawString("Join", joinBtnX + 12, contentY + 10, 0xFFFFFF);
+                
+                contentY += 35;
+            }
+        }
+    }
+    
+    private void drawVoiceCreateRoomView(int x, int y, int width, int height, int mouseX, int mouseY) {
+        net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        this.fontRendererObj.drawString("Create New Room", x + 15, y, 0xFFFFFF);
+        
+        int contentY = y + 30;
+        
+        // Room name field
+        this.fontRendererObj.drawString("Room Name:", x + 15, contentY + 5, 0xAAAAAA);
+        voiceRoomNameField.xPosition = x + 100;
+        voiceRoomNameField.yPosition = contentY;
+        voiceRoomNameField.width = 200;
+        voiceRoomNameField.drawTextBox();
+        
+        contentY += 35;
+        
+        // Create button
+        int createBtnX = x + 100;
+        boolean createHover = mouseX >= createBtnX && mouseX < createBtnX + 80 && 
+                             mouseY >= contentY && mouseY < contentY + 22;
+        RenderUtils.drawRect(createBtnX, contentY, createBtnX + 80, contentY + 22, createHover ? 0xFF55AA55 : 0xFF3a6a3a);
+        RenderUtils.drawBorder(createBtnX, contentY, createBtnX + 80, contentY + 22, 0xFF77CC77, 1);
+        net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        this.fontRendererObj.drawString("Create", createBtnX + 20, contentY + 7, 0xFFFFFF);
+        
+        // Cancel button
+        int cancelBtnX = createBtnX + 90;
+        boolean cancelHover = mouseX >= cancelBtnX && mouseX < cancelBtnX + 70 && 
+                             mouseY >= contentY && mouseY < contentY + 22;
+        RenderUtils.drawRect(cancelBtnX, contentY, cancelBtnX + 70, contentY + 22, cancelHover ? 0xFF5a4a4a : 0xFF4a3a3a);
+        RenderUtils.drawBorder(cancelBtnX, contentY, cancelBtnX + 70, contentY + 22, 0xFFAA5555, 1);
+        net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        this.fontRendererObj.drawString("Cancel", cancelBtnX + 15, contentY + 7, 0xFFFFFF);
+    }
+    
+    private void drawVoiceSettingsView(int x, int y, int width, int height, int mouseX, int mouseY) {
+        VoiceChatManager voiceManager = VoiceChatManager.getInstance();
+        int contentY = y;
+        
+        net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        this.fontRendererObj.drawString("Voice Chat Settings", x + 15, contentY, 0xFFFFFF);
+        contentY += 25;
+        
+        // API Key field
+        this.fontRendererObj.drawString("API Key:", x + 15, contentY + 5, 0xAAAAAA);
+        voiceApiKeyField.xPosition = x + 80;
+        voiceApiKeyField.yPosition = contentY;
+        voiceApiKeyField.drawTextBox();
+        
+        // Save button for API key
+        int saveBtnX = x + 290;
+        boolean saveHover = mouseX >= saveBtnX && mouseX < saveBtnX + 50 && 
+                           mouseY >= contentY && mouseY < contentY + 18;
+        RenderUtils.drawRect(saveBtnX, contentY, saveBtnX + 50, contentY + 18, saveHover ? 0xFF55AA55 : 0xFF3a6a3a);
+        RenderUtils.drawBorder(saveBtnX, contentY, saveBtnX + 50, contentY + 18, 0xFF77CC77, 1);
+        net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        this.fontRendererObj.drawString("Save", saveBtnX + 13, contentY + 5, 0xFFFFFF);
+        contentY += 25;
+        
+        // API Key status & Discord verified name
+        String keyStatus = voiceManager.getAuthToken() != null && !voiceManager.getAuthToken().isEmpty() 
+            ? "\\u00a7aKey set" : "\\u00a7cNo key set";
+        this.fontRendererObj.drawString(keyStatus, x + 15, contentY, 0xFFFFFF);
+        
+        // Verified Discord name (if available)
+        if (voiceManager.getVerifiedDiscordName() != null && !voiceManager.getVerifiedDiscordName().isEmpty()) {
+            this.fontRendererObj.drawString("Verified: " + voiceManager.getVerifiedDiscordName(), x + 100, contentY, 0x55FF55);
+        }
+        contentY += 20;
+        
+        // Push to Talk toggle
+        this.fontRendererObj.drawString("Push to Talk:", x + 15, contentY + 6, 0xAAAAAA);
+        int pttBtnX = x + 120;
+        boolean pttHover = mouseX >= pttBtnX && mouseX < pttBtnX + 60 && 
+                          mouseY >= contentY && mouseY < contentY + 22;
+        int pttBg = voiceManager.isUsePushToTalk() ? 0xFF55AA55 : (pttHover ? 0xFF4a5a6a : 0xFF3a4a5a);
+        RenderUtils.drawRect(pttBtnX, contentY, pttBtnX + 60, contentY + 22, pttBg);
+        RenderUtils.drawBorder(pttBtnX, contentY, pttBtnX + 60, contentY + 22, voiceManager.isUsePushToTalk() ? 0xFF77CC77 : 0xFF666666, 1);
+        net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        String pttText = voiceManager.isUsePushToTalk() ? "ON" : "OFF";
+        int pttTextW = this.fontRendererObj.getStringWidth(pttText);
+        this.fontRendererObj.drawString(pttText, pttBtnX + (60 - pttTextW) / 2, contentY + 7, 0xFFFFFF);
+        contentY += 30;
+        
+        // PTT Key info
+        this.fontRendererObj.drawString("PTT Key: V (hold to talk)", x + 15, contentY, 0x888888);
+        contentY += 20;
+        
+        // Microphone Volume slider
+        this.fontRendererObj.drawString("Mic Volume:", x + 15, contentY + 4, 0xAAAAAA);
+        int micSliderX = x + 100;
+        int micSliderWidth = 150;
+        RenderUtils.drawRect(micSliderX, contentY, micSliderX + micSliderWidth, contentY + 15, 0xFF2a2a3a);
+        int micFillWidth = (int)(micSliderWidth * voiceManager.getMicrophoneVolume());
+        RenderUtils.drawRect(micSliderX, contentY, micSliderX + micFillWidth, contentY + 15, 0xFF5865F2);
+        RenderUtils.drawBorder(micSliderX, contentY, micSliderX + micSliderWidth, contentY + 15, 0xFF666666, 1);
+        net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        this.fontRendererObj.drawString((int)(voiceManager.getMicrophoneVolume() * 100) + "%", micSliderX + micSliderWidth + 10, contentY + 4, 0xFFFFFF);
+        contentY += 22;
+        
+        // Output Volume slider  
+        this.fontRendererObj.drawString("Output Vol:", x + 15, contentY + 4, 0xAAAAAA);
+        int outSliderX = x + 100;
+        RenderUtils.drawRect(outSliderX, contentY, outSliderX + micSliderWidth, contentY + 15, 0xFF2a2a3a);
+        int outFillWidth = (int)(micSliderWidth * voiceManager.getOutputVolume());
+        RenderUtils.drawRect(outSliderX, contentY, outSliderX + outFillWidth, contentY + 15, 0xFF55AA55);
+        RenderUtils.drawBorder(outSliderX, contentY, outSliderX + micSliderWidth, contentY + 15, 0xFF666666, 1);
+        net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        this.fontRendererObj.drawString((int)(voiceManager.getOutputVolume() * 100) + "%", outSliderX + micSliderWidth + 10, contentY + 4, 0xFFFFFF);
+    }
+    
+    private void refreshVoiceRooms() {
+        VoiceChatManager voiceManager = VoiceChatManager.getInstance();
+        if (!voiceManager.isConnected()) {
+            voiceStatusMessage = "Connect first to browse rooms";
+            voiceStatusMessageTime = System.currentTimeMillis();
+            return;
+        }
+        
+        voiceManager.requestRoomList();
+    }
+    
+    private void handleVoiceChatClick(int mouseX, int mouseY) {
+        VoiceChatManager voiceManager = VoiceChatManager.getInstance();
+        
+        int x = PANEL_X + 10;
+        int y = PANEL_Y + HEADER_HEIGHT + 10;
+        int contentY = y + 55;
+        int buttonHeight = 22;
+        int buttonSpacing = 10;
+        int buttonWidth = 90;
+        
+        // First row buttons
+        // Connect/Disconnect button
+        if (mouseX >= x + 15 && mouseX < x + 15 + buttonWidth && 
+            mouseY >= contentY && mouseY < contentY + buttonHeight) {
+            if (voiceManager.isConnected()) {
+                voiceManager.disconnect();
+                voiceStatusMessage = "Disconnected";
+            } else {
+                voiceManager.connect();
+                voiceStatusMessage = "Connecting...";
+            }
+            voiceStatusMessageTime = System.currentTimeMillis();
+            return;
+        }
+        
+        // Browse Rooms button
+        int browseX = x + 15 + buttonWidth + buttonSpacing;
+        if (mouseX >= browseX && mouseX < browseX + 95 && 
+            mouseY >= contentY && mouseY < contentY + buttonHeight) {
+            if (!voiceChatViewMode.equals("rooms")) {
+                voiceChatViewMode = "rooms";
+                refreshVoiceRooms(); // Auto-refresh when entering rooms view
+            } else {
+                voiceChatViewMode = "main";
+            }
+            return;
+        }
+        
+        // Settings button
+        int settingsX = browseX + 95 + buttonSpacing;
+        if (mouseX >= settingsX && mouseX < settingsX + 70 && 
+            mouseY >= contentY && mouseY < contentY + buttonHeight) {
+            voiceChatViewMode = voiceChatViewMode.equals("settings") ? "main" : "settings";
+            return;
+        }
+        
+        contentY += buttonHeight + 10;
+        
+        // Second row buttons
+        // Mute button
+        int muteX = x + 15;
+        if (mouseX >= muteX && mouseX < muteX + 70 && 
+            mouseY >= contentY && mouseY < contentY + buttonHeight) {
+            voiceManager.setMuted(!voiceManager.isMuted());
+            return;
+        }
+        
+        // Deafen button
+        int deafenX = muteX + 70 + buttonSpacing;
+        if (mouseX >= deafenX && mouseX < deafenX + 70 && 
+            mouseY >= contentY && mouseY < contentY + buttonHeight) {
+            voiceManager.setDeafened(!voiceManager.isDeafened());
+            return;
+        }
+        
+        // Leave Room button
+        int leaveX = deafenX + 70 + buttonSpacing;
+        if (mouseX >= leaveX && mouseX < leaveX + 85 && 
+            mouseY >= contentY && mouseY < contentY + buttonHeight) {
+            voiceManager.leaveRoom();
+            voiceStatusMessage = "Left room";
+            voiceStatusMessageTime = System.currentTimeMillis();
+            return;
+        }
+        
+        contentY += buttonHeight + 20;
+        
+        // Handle view-specific clicks
+        if (voiceChatViewMode.equals("settings")) {
+            // API key field click
+            if (voiceApiKeyField != null) {
+                voiceApiKeyField.mouseClicked(mouseX, mouseY, 0);
+            }
+            
+            // Settings view starts at contentY, matches drawVoiceSettingsView layout
+            int settingsY = contentY + 25; // After title
+            
+            // Save API key button (at settingsY, next to API key field)
+            int saveBtnX = x + 290;
+            if (mouseX >= saveBtnX && mouseX < saveBtnX + 50 && 
+                mouseY >= settingsY && mouseY < settingsY + 18) {
+                String apiKey = voiceApiKeyField.getText().trim();
+                voiceManager.setAuthToken(apiKey);
+                ConfigManager.set("voiceApiKey", apiKey);
+                ConfigManager.save();
+                if (!apiKey.isEmpty()) {
+                    voiceStatusMessage = "API key saved! Connecting...";
+                    voiceStatusMessageTime = System.currentTimeMillis();
+                    // Auto-connect with the new key
+                    if (!voiceManager.isConnected()) {
+                        voiceManager.connect();
+                    }
+                } else {
+                    voiceStatusMessage = "API key cleared";
+                    voiceStatusMessageTime = System.currentTimeMillis();
+                }
+                return;
+            }
+            
+            // PTT toggle (settingsY + 25 for status line + 20 spacing = settingsY + 45)
+            int pttBtnX = x + 120;
+            int pttY = settingsY + 45;
+            if (mouseX >= pttBtnX && mouseX < pttBtnX + 60 && 
+                mouseY >= pttY && mouseY < pttY + 22) {
+                voiceManager.setUsePushToTalk(!voiceManager.isUsePushToTalk());
+                return;
+            }
+            
+            // Mic volume slider (pttY + 30 for PTT button + 20 for PTT key info = pttY + 50)
+            int micSliderX = x + 100;
+            int micSliderWidth = 150;
+            int micSliderY = pttY + 50;
+            if (mouseX >= micSliderX && mouseX < micSliderX + micSliderWidth && 
+                mouseY >= micSliderY && mouseY < micSliderY + 15) {
+                float newVol = (float)(mouseX - micSliderX) / micSliderWidth;
+                voiceManager.setMicrophoneVolume(Math.max(0, Math.min(1, newVol)));
+                return;
+            }
+            
+            // Output volume slider (micSliderY + 22)
+            int outSliderY = micSliderY + 22;
+            if (mouseX >= micSliderX && mouseX < micSliderX + micSliderWidth && 
+                mouseY >= outSliderY && mouseY < outSliderY + 15) {
+                float newVol = (float)(mouseX - micSliderX) / micSliderWidth;
+                voiceManager.setOutputVolume(Math.max(0, Math.min(1, newVol)));
+                return;
+            }
+        } else if (voiceChatViewMode.equals("rooms")) {
+            // Create Room button
+            int createY = contentY + 20;
+            if (mouseX >= x + 15 && mouseX < x + 115 && 
+                mouseY >= createY && mouseY < createY + 22) {
+                voiceChatViewMode = "create_room";
+                voiceRoomNameField.setText("");
+                return;
+            }
+            
+            // Refresh button
+            if (mouseX >= x + 125 && mouseX < x + 195 && 
+                mouseY >= createY && mouseY < createY + 22) {
+                voiceStatusMessage = "Refreshing rooms...";
+                voiceStatusMessageTime = System.currentTimeMillis();
+                refreshVoiceRooms();
+                return;
+            }
+            
+            // Back button
+            if (mouseX >= x + 205 && mouseX < x + 255 && 
+                mouseY >= createY && mouseY < createY + 22) {
+                voiceChatViewMode = "main";
+                return;
+            }
+            
+            // Room list items - check for Join clicks
+            java.util.List<VoiceRoom> availableRooms = voiceManager.getAvailableRooms();
+            int roomListY = createY + 35;
+            int panelWidth = this.width - 100 - 20; // Match fullWidth calculation from drawScreen
+            
+            for (int i = voiceRoomListScroll; i < Math.min(voiceRoomListScroll + 6, availableRooms.size()); i++) {
+                VoiceRoom room = availableRooms.get(i);
+                
+                // Check if click is on this room row
+                if (mouseY >= roomListY && mouseY < roomListY + 30) {
+                    // Join button area
+                    int joinBtnX = x + panelWidth - 80;
+                    if (mouseX >= joinBtnX && mouseX < joinBtnX + 45) {
+                        voiceManager.joinRoom(room.getId());
+                        voiceStatusMessage = "Joining room: " + room.getName();
+                        voiceStatusMessageTime = System.currentTimeMillis();
+                        voiceChatViewMode = "main";
+                        return;
+                    }
+                }
+                roomListY += 35;
+            }
+        } else if (voiceChatViewMode.equals("create_room")) {
+            // Room name field click
+            if (voiceRoomNameField != null) {
+                voiceRoomNameField.mouseClicked(mouseX, mouseY, 0);
+            }
+            
+            int createRoomY = contentY + 65;
+            
+            // Create button
+            int createBtnX = x + 100;
+            if (mouseX >= createBtnX && mouseX < createBtnX + 80 && 
+                mouseY >= createRoomY && mouseY < createRoomY + 22) {
+                String roomName = voiceRoomNameField.getText().trim();
+                if (!roomName.isEmpty()) {
+                    voiceManager.createRoom(roomName, false);
+                    voiceStatusMessage = "Creating room: " + roomName;
+                    voiceStatusMessageTime = System.currentTimeMillis();
+                    voiceChatViewMode = "main";
+                } else {
+                    voiceStatusMessage = "Please enter a room name";
+                    voiceStatusMessageTime = System.currentTimeMillis();
+                }
+                return;
+            }
+            
+            // Cancel button
+            int cancelBtnX = createBtnX + 90;
+            if (mouseX >= cancelBtnX && mouseX < cancelBtnX + 70 && 
+                mouseY >= createRoomY && mouseY < createRoomY + 22) {
+                voiceChatViewMode = "rooms";
+                return;
+            }
+        }
     }
     
     // ===================== BAZAAR DRAWING METHODS =====================
@@ -1851,6 +2539,12 @@ public class GuiAnnouncement extends GuiScreen {
             return;
         }
         
+        // Handle Voice Chat clicks
+        if (currentTab == Message.MessageType.VOICE_CHAT) {
+            handleVoiceChatClick(mouseX, mouseY);
+            return;
+        }
+        
         // Handle Bazaar clicks
         if (currentTab == Message.MessageType.BAZAAR) {
             // Handle bazaar search field click
@@ -2124,6 +2818,26 @@ public class GuiAnnouncement extends GuiScreen {
                 }
             }
         }
+        
+        // Handle Voice API key field input
+        if (voiceApiKeyField != null && currentTab == Message.MessageType.VOICE_CHAT && voiceChatViewMode.equals("settings")) {
+            voiceApiKeyField.textboxKeyTyped(typedChar, keyCode);
+        }
+        
+        // Handle Voice Room Name field input
+        if (voiceRoomNameField != null && currentTab == Message.MessageType.VOICE_CHAT && voiceChatViewMode.equals("create_room")) {
+            voiceRoomNameField.textboxKeyTyped(typedChar, keyCode);
+            // Enter key to create room
+            if (keyCode == 28) { // ENTER
+                String roomName = voiceRoomNameField.getText().trim();
+                if (!roomName.isEmpty()) {
+                    VoiceChatManager.getInstance().createRoom(roomName, false);
+                    voiceStatusMessage = "Creating room: " + roomName;
+                    voiceStatusMessageTime = System.currentTimeMillis();
+                    voiceChatViewMode = "main";
+                }
+            }
+        }
     }
     
     @Override
@@ -2167,6 +2881,25 @@ public class GuiAnnouncement extends GuiScreen {
                     }
                 }
             }
+        }
+    }
+    
+    // ===================== INNER CLASSES =====================
+    
+    /**
+     * Simple class to hold voice room info for the room browser
+     */
+    private static class VoiceRoomEntry {
+        public String roomId;
+        public String name;
+        public int userCount;
+        public boolean isPrivate;
+        
+        public VoiceRoomEntry(String roomId, String name, int userCount, boolean isPrivate) {
+            this.roomId = roomId;
+            this.name = name;
+            this.userCount = userCount;
+            this.isPrivate = isPrivate;
         }
     }
 }

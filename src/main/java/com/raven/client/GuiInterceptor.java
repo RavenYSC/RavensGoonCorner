@@ -1,7 +1,5 @@
 package com.raven.client;
 
-import com.raven.client.features.dungeons.leapmenu.LeapMenu;
-import com.raven.client.gui.GuiOpener;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.inventory.GuiChest;
 import net.minecraft.inventory.ContainerChest;
@@ -24,12 +22,14 @@ public class GuiInterceptor {
                 String chestName = inv.getDisplayName().getUnformattedText();
                 if (chestName == null) return;
 
-                if (chestName.contains("Leap") || chestName.contains("Infinileap")) {
-                    event.setCanceled(true); // Cancel default chest
-                    GuiOpener.openGuiNextTick(new LeapMenu()); // Show custom leap menu
-                }
-            } catch (Exception e) {
-                // Silently ignore errors in GUI interception
+                // Leap menu disabled for now
+                // if (chestName.contains("Leap") || chestName.contains("Infinileap")) {
+                //     event.setCanceled(true);
+                //     GuiOpener.openGuiNextTick(new LeapMenu());
+                // }
+            } 
+            catch (Exception e) {
+                
             }
         }
     }

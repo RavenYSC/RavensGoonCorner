@@ -8,7 +8,8 @@ public class Message {
         PARTY_FINDER("PARTY FINDER", 0xFFD700), // Gold
         BAZAAR("BAZAAR", 0x55FF55),         // Green
         AUCTION_HOUSE("AUCTION", 0xAA55FF), // Purple
-        STOCK_MARKET("STOCKS", 0x55FFFF);  // Cyan
+        STOCK_MARKET("STOCKS", 0x55FFFF),   // Cyan
+        VOICE_CHAT("VOICE", 0x5865F2);      // Discord blue
         
         public final String label;
         public final int color;

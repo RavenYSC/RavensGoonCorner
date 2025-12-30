@@ -1,8 +1,8 @@
 [{
-  "modid": "genesisclient",
+  "modid": "ravenclient",
   "name": "1:1 Client",
   "description": "We are cooked.",
-  "version": "0.1",
+  "version": "1.0",
   "mcversion": "1.8.9",
   "authorList": ["Raven"],
   "credits": "M7 Retards",
