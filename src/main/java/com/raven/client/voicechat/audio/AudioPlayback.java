@@ -102,11 +102,20 @@ public class AudioPlayback {
      */
     public void playAudio(String userId, byte[] pcmData, float volume) {
         if (!initialized.get()) {
+            System.err.println("[VoiceChat] playAudio called but not initialized!");
+            return;
+        }
+        
+        if (pcmData == null || pcmData.length == 0) {
+            System.err.println("[VoiceChat] playAudio received null/empty data");
             return;
         }
         
         // Get or create jitter buffer for this user
-        JitterBuffer buffer = userBuffers.computeIfAbsent(userId, k -> new JitterBuffer());
+        JitterBuffer buffer = userBuffers.computeIfAbsent(userId, k -> {
+            System.out.println("[VoiceChat] Created jitter buffer for user: " + userId);
+            return new JitterBuffer();
+        });
         
         // Apply volume and queue
         byte[] adjustedData = applyVolume(pcmData, volume);
@@ -125,13 +134,13 @@ public class AudioPlayback {
      */
     private void playbackLoop() {
         byte[] mixBuffer = new byte[AudioCapture.FRAME_BYTES];
+        long lastDebugTime = 0;
+        int framesPlayed = 0;
         
         while (playing.get()) {
             try {
                 // Clear mix buffer
-                for (int i = 0; i < mixBuffer.length; i++) {
-                    mixBuffer[i] = 0;
-                }
+                java.util.Arrays.fill(mixBuffer, (byte) 0);
                 
                 boolean hasAudio = false;
                 
@@ -146,7 +155,23 @@ public class AudioPlayback {
                 
                 // Write to speaker if we have audio
                 if (hasAudio) {
-                    speaker.write(mixBuffer, 0, mixBuffer.length);
+                    // Make sure speaker is running
+                    if (!speaker.isRunning()) {
+                        speaker.start();
+                    }
+                    
+                    int written = speaker.write(mixBuffer, 0, mixBuffer.length);
+                    framesPlayed++;
+                    
+                    // Debug every 5 seconds
+                    long now = System.currentTimeMillis();
+                    if (now - lastDebugTime > 5000) {
+                        System.out.println("[VoiceChat] Audio playback: " + framesPlayed + " frames, written=" + written + 
+                            ", available=" + speaker.available() + ", active=" + speaker.isActive() + 
+                            ", running=" + speaker.isRunning());
+                        lastDebugTime = now;
+                        framesPlayed = 0;
+                    }
                 } else {
                     // Sleep briefly if no audio to prevent busy waiting
                     Thread.sleep(10);
@@ -155,6 +180,7 @@ public class AudioPlayback {
             } catch (Exception e) {
                 if (playing.get()) {
                     System.err.println("[VoiceChat] Playback error: " + e.getMessage());
+                    e.printStackTrace();
                 }
             }
         }
@@ -165,23 +191,21 @@ public class AudioPlayback {
      */
     private void mixAudio(byte[] dest, byte[] source) {
         for (int i = 0; i < dest.length && i < source.length; i += 2) {
-            // Convert to 16-bit samples
-            int sample1 = (dest[i] & 0xFF) | (dest[i + 1] << 8);
-            int sample2 = (source[i] & 0xFF) | (source[i + 1] << 8);
+            // Convert to 16-bit signed samples (little-endian)
+            short sample1 = (short) ((dest[i] & 0xFF) | ((dest[i + 1] & 0xFF) << 8));
+            short sample2 = (short) ((source[i] & 0xFF) | ((source[i + 1] & 0xFF) << 8));
             
-            // Mix samples
+            // Mix samples (use int to avoid overflow)
             int mixed = sample1 + sample2;
             
-            // Soft clipping to prevent harsh distortion
+            // Clamp to 16-bit range
             if (mixed > 32767) {
-                mixed = 32767 - (mixed - 32767) / 4;
-                mixed = Math.min(32767, mixed);
+                mixed = 32767;
             } else if (mixed < -32768) {
-                mixed = -32768 - (mixed + 32768) / 4;
-                mixed = Math.max(-32768, mixed);
+                mixed = -32768;
             }
             
-            // Convert back to bytes
+            // Convert back to bytes (little-endian)
             dest[i] = (byte) (mixed & 0xFF);
             dest[i + 1] = (byte) ((mixed >> 8) & 0xFF);
         }
@@ -198,11 +222,15 @@ public class AudioPlayback {
         byte[] result = new byte[buffer.length];
         
         for (int i = 0; i < buffer.length; i += 2) {
-            int sample = (buffer[i] & 0xFF) | (buffer[i + 1] << 8);
-            sample = (int) (sample * volume);
-            sample = Math.max(-32768, Math.min(32767, sample));
-            result[i] = (byte) (sample & 0xFF);
-            result[i + 1] = (byte) ((sample >> 8) & 0xFF);
+            // Read 16-bit signed sample (little-endian)
+            short sample = (short) ((buffer[i] & 0xFF) | ((buffer[i + 1] & 0xFF) << 8));
+            // Apply volume
+            int adjusted = (int) (sample * volume);
+            // Clamp to 16-bit range
+            adjusted = Math.max(-32768, Math.min(32767, adjusted));
+            // Write back (little-endian)
+            result[i] = (byte) (adjusted & 0xFF);
+            result[i + 1] = (byte) ((adjusted >> 8) & 0xFF);
         }
         
         return result;

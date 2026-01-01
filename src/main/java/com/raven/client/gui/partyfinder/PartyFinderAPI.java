@@ -126,7 +126,9 @@ public class PartyFinderAPI {
     }
     
     /**
-     * Join an existing party
+     * Join an existing party - requires the player to actually be in the in-game party
+     * The server will verify this by checking if the joining player's in-game party leader
+     * matches the party finder listing leader.
      */
     public static void joinParty(String partyId, ResultCallback callback) {
         new Thread(() -> {
@@ -140,10 +142,19 @@ public class PartyFinderAPI {
                 String playerName = mc.thePlayer.getName();
                 String uuid = mc.thePlayer.getUniqueID().toString();
                 
+                // Get in-game party info for verification
+                HypixelPartyTracker tracker = HypixelPartyTracker.getInstance();
+                String inGamePartyLeader = tracker.getPartyLeader();
+                boolean inGameInParty = tracker.isInParty();
+                
                 JsonObject payload = new JsonObject();
                 payload.addProperty("party_id", partyId);
                 payload.addProperty("player_name", playerName);
                 payload.addProperty("player_uuid", uuid);
+                
+                // Include in-game party verification data
+                payload.addProperty("in_game_party_leader", inGamePartyLeader != null ? inGamePartyLeader : "");
+                payload.addProperty("in_game_in_party", inGameInParty);
                 
                 HttpURLConnection conn = (HttpURLConnection) new URL(API_BASE_URL + "/join").openConnection();
                 conn.setRequestMethod("POST");
@@ -172,6 +183,73 @@ public class PartyFinderAPI {
                 
             } catch (Exception e) {
                 System.err.println("[PartyFinder] Join error: " + e.getMessage());
+                callback.onError("Connection failed: " + e.getMessage());
+            }
+        }).start();
+    }
+    
+    /**
+     * Sync party members - updates the server with actual in-game party members.
+     * This removes members who are no longer in the in-game party.
+     */
+    public static void syncPartyMembers(String partyId, ResultCallback callback) {
+        new Thread(() -> {
+            try {
+                Minecraft mc = Minecraft.getMinecraft();
+                if (mc.thePlayer == null) {
+                    callback.onError("Player not found");
+                    return;
+                }
+                
+                String uuid = mc.thePlayer.getUniqueID().toString();
+                HypixelPartyTracker tracker = HypixelPartyTracker.getInstance();
+                
+                JsonObject payload = new JsonObject();
+                payload.addProperty("party_id", partyId);
+                payload.addProperty("player_uuid", uuid);
+                
+                // Send current in-game party members
+                JsonArray membersArray = new JsonArray();
+                for (String member : tracker.getPartyMembers()) {
+                    membersArray.add(new com.google.gson.JsonPrimitive(member));
+                }
+                // Include the leader
+                if (tracker.getPartyLeader() != null) {
+                    membersArray.add(new com.google.gson.JsonPrimitive(tracker.getPartyLeader()));
+                }
+                // Include self
+                membersArray.add(new com.google.gson.JsonPrimitive(mc.thePlayer.getName()));
+                
+                payload.add("in_game_members", membersArray);
+                payload.addProperty("in_game_in_party", tracker.isInParty());
+                
+                HttpURLConnection conn = (HttpURLConnection) new URL(API_BASE_URL + "/sync").openConnection();
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Content-Type", "application/json");
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(5000);
+                conn.setDoOutput(true);
+                
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(payload.toString().getBytes(StandardCharsets.UTF_8));
+                }
+                
+                int responseCode = conn.getResponseCode();
+                if (responseCode == 200) {
+                    JsonObject response = new JsonParser().parse(
+                        new InputStreamReader(conn.getInputStream())
+                    ).getAsJsonObject();
+                    
+                    int removed = response.has("removed_count") ? response.get("removed_count").getAsInt() : 0;
+                    System.out.println("[PartyFinder] Synced party, removed " + removed + " invalid members");
+                    callback.onSuccess("synced");
+                } else {
+                    String error = readErrorResponse(conn);
+                    callback.onError(error);
+                }
+                
+            } catch (Exception e) {
+                System.err.println("[PartyFinder] Sync error: " + e.getMessage());
                 callback.onError("Connection failed: " + e.getMessage());
             }
         }).start();

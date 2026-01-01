@@ -10,6 +10,7 @@ import com.raven.client.features.mining.EfficientMinerHeatmap;
 import com.raven.client.features.mining.NoBlockBreakReset;
 import com.raven.client.gui.GuiOpener;
 import com.raven.client.gui.notifications.NotificationRenderer;
+import com.raven.client.gui.partyfinder.HypixelPartyTracker;
 import com.raven.client.license.LicenseChecker;
 import com.raven.client.music.MainMenuMusicHandler;
 import com.raven.client.music.MusicManager;
@@ -96,6 +97,10 @@ public class RavenClient {
         // Initialize Main Menu music handler and register events
         MinecraftForge.EVENT_BUS.register(MainMenuMusicHandler.getInstance());
         System.out.println("[" + NAME + "] Main menu music handler initialized");
+
+        // Initialize Hypixel Party Tracker for party finder verification
+        HypixelPartyTracker.getInstance();
+        System.out.println("[" + NAME + "] Party tracker initialized");
 
         // Async: Sync playlists from API on background thread (non-blocking)
         new Thread(() -> {
