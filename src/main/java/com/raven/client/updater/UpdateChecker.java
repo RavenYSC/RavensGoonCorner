@@ -13,7 +13,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.raven.client.RavenClient;
 
-import net.minecraft.client.Minecraft;
+import net.minecraft.launchwrapper.Launch;
 
 public class UpdateChecker {
     
@@ -172,8 +172,8 @@ public class UpdateChecker {
             
             int fileSize = conn.getContentLength();
             
-            // Get mods folder
-            File modsFolder = new File(Minecraft.getMinecraft().mcDataDir, "mods");
+            // Get mods folder using Launch.minecraftHome (works in production)
+            File modsFolder = new File(Launch.minecraftHome, "mods");
             File updateFile = new File(modsFolder, "RavenClient-" + latestVersion + ".jar.update");
             
             // Download to temp file
@@ -236,7 +236,8 @@ public class UpdateChecker {
      */
     public static void applyPendingUpdates() {
         try {
-            File modsFolder = new File(Minecraft.getMinecraft().mcDataDir, "mods");
+            // Use Launch.minecraftHome since Minecraft instance may not be ready
+            File modsFolder = new File(Launch.minecraftHome, "mods");
             
             // Process delete markers
             File[] files = modsFolder.listFiles();
